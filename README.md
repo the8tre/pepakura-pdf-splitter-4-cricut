@@ -1,42 +1,46 @@
-# cricut-svg-splitter
+# pepakura-pdf-splitter-4-cricut
 
-## [▶ Open the app](https://the8tre.github.io/cricut-svg-splitter/index.html)
+## [▶ Open the app](https://the8tre.github.io/pepakura-pdf-splitter-4-cricut/index.html)
 
-A standalone web app that splits a paper-model SVG (unfolded 3D net) into two files ready for a Cricut machine:
+A standalone web app that takes a **Pepakura Designer PDF** papercraft net and splits it into two files ready for a Cricut machine:
 
-- **Cut file** — outer boundary + gluing tabs, filled solid blue (`#0A91B3`)
-- **Emboss file** — fold lines (face-to-face folds + languette/tab fold edges), solid strokes
+- **Cut file** — all solid lines (piece boundaries)
+- **Fold file** — all dashed lines (mountain and valley folds)
 
-Both output files share identical page dimensions and coordinate space, so Cricut overlays them with perfect alignment.
+Both output files share identical coordinates so Cricut overlays them with perfect alignment.
 
 ## Usage
 
-Open `svg-splitter.html` in any modern browser — no server or build step required. Works from a local `file://` URL or hosted on GitHub Pages.
+Open `index.html` in any modern browser — no server or build step required.
 
-1. Drop your SVG onto the page (or click to browse), or click **Load sample cube** to try the included cube net
-2. Inspect the original preview and the two output previews
-3. Download `*_cut.svg` and `*_emboss.svg`
+1. Drop a Pepakura PDF onto the page (or click to browse)
+2. Use the **PDF page** selector if the pattern spans multiple pages
+3. Toggle **Both / Cut / Fold** to preview each layer
+4. Download the Cricut SVG
 
 ## How it works
 
-The app reads CSS class attributes on SVG path elements to classify them:
+The app reads the PDF directly in the browser via [pdf.js](https://mozilla.github.io/pdf.js/). Each drawn stroke carries a dash state:
 
-| Class | Output file |
+| Dash pattern | Layer |
 |---|---|
-| `outer`, `outer_background` | Cut |
-| `sticker` (gluing tabs) | Cut |
-| `convex`, `concave` | Emboss |
-| `freestyle`, `inner_background`, `arrow`, `text` | Dropped |
+| Solid (no dash) | Cut |
+| Any dashed pattern | Fold |
 
-**Languette fold edges** are auto-computed from the `sticker` subpaths: for each tab, the app finds the edge whose two endpoints both lie on the outer boundary but are not consecutive vertices along it — that edge is the fold line between the tab and its face.
+Pepakura's line styles are user-configurable, so classification is based on solid vs. dashed, not on specific dash values. Both mountain (`- - -`) and valley (`- · - ·`) folds are merged into the single fold layer.
 
 ## Input format
 
-SVGs exported from the [Blender Export Paper Model add-on](https://extensions.blender.org/add-ons/export-paper-model/#new) that use the class conventions above. The included `Cube.svg` is a working example.
+PDFs exported from [Pepakura Designer](https://tamasoft.co.jp/pepakura-en/) (Tamasoft) via **File → Print to PDF…**
+
+> ⚠️ In the Print Settings dialog, select **"Print lines clearly (Vector print)"**. The "Bitmap print" option rasterizes the lines and the app cannot process them.
+>
+> <img src="print_settings.png" width="260" alt="Print Settings — select Vector print">
+
+Multi-page layouts are supported — each page is processed independently.
 
 ## Files
 
 | File | Description |
 |---|---|
 | `index.html` | The application — single self-contained HTML file |
-| `Cube.svg` | Sample cube net for testing |

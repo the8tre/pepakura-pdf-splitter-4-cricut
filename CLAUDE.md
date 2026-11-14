@@ -17,56 +17,65 @@ To verify JS syntax without running a browser:
 python3 -c "
 import re
 content = open('index.html').read()
-m = re.search(r'<script>(.*?)</script>', content, re.DOTALL)
-open('/tmp/chk.js','w').write(m.group(1))
-"
-node --check /tmp/chk.js
+scripts = re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', content, re.DOTALL)
+open('/tmp/chk.js','w').write(scripts[-1])
+" && node --check /tmp/chk.js
 ```
 
 ## Architecture
 
-Single self-contained file: `index.html` (HTML + CSS + JS, ~800 lines). No dependencies, no build tooling.
+Single self-contained file: `index.html` (HTML + CSS + JS, ~730 lines). No dependencies, no build tooling. `pdfjs-dist` 6.x is loaded from CDN at runtime as an ESM module and exposed on `window.pdfjsLib`.
 
 ### Input
 
-SVGs exported from the [Blender Export Paper Model add-on](https://extensions.blender.org/add-ons/export-paper-model/#new). Path elements carry CSS `class` attributes that classify their role:
+PDFs exported from **Pepakura Designer** via File → Print to PDF… with "Print lines clearly (Vector print)" selected. Each page contains a flat bag of 2-point stroked segments — one `moveTo + lineTo` per edge, no topology or piece grouping.
 
-| Class | Role |
-|---|---|
-| `outer` | Cut boundary (single closed polygon — already encodes languettes/tabs) |
-| `sticker` | Gluing tabs (multi-subpath `M...Z` — redundant with `outer`, used only for fold-edge detection) |
-| `convex`, `concave` | Deboss/fold lines |
-| `freestyle`, `inner_background`, `arrow`, `text`/`tspan` | Extra (passed through to combined output) |
+### Processing pipeline
 
-### Processing pipeline (`split()`)
+```
+processPDF(file)
+  → pdfToSegments(doc, pageNum)      # walk pdfjs OPS, classify + Y-flip + pt→mm
+  → segmentsToSVG(segs)              # deduplicate, stitch folds, emit class-tagged SVG
+  → split(filename, svgText)         # merge, size, preview, download
+```
 
-1. **Walk** the SVG tree → classify each element into `cutNodes`, `debossNodes`, `extraNodes`
-2. **Cut**: `mergeCutNodes(cutNodes, outerDAttr)` — uses `outer` path directly (sticker paths are geometrically redundant); outputs single `<path>` with inline `style="fill:…"` (no `<style>` block — Cricut ignores CSS)
-3. **Deboss**: `mergeDebossNodes(debossNodes, languetteFoldPathStr)` — collects all `M…L` segments, deduplicates by canonical edge key, merges into one path
-4. **Combined**: `buildCricutSVG(…)` — union of cut + deboss paths + extra nodes in a single SVG
+#### pdfToSegments
+Walks `page.getOperatorList()`. Key facts:
+- Coordinates are in **`args[1]`** (mini-ops array, objects `{0:op,1:x,2:y,...}`). **Do not use `args[2]`** (Float32Array) — it holds a different representation and breaks vertex sharing.
+- `OPS.setDash` precedes every path; track the last value. Empty `[]` → **cut**, any non-empty → **fold**.
+- Apply Y-flip (`H - y`) and `PT_TO_MM = 25.4/72` to convert points → mm.
+
+#### segmentsToSVG
+- **Cut**: raw deduped segments emitted as individual `M x y L x y` subpaths, `class="outer"`, stroked unfilled. Stitching into filled polygons was tried and fails (flat bag of segments with no piece grouping produces holes and cross-net diagonals).
+- **Fold**: stitched via `stitchSegments()` (angle-based junction walk) into polylines, then split back to per-edge `M L` subpaths via `polylineToEdges()` — the deboss merger regex only captures one `L` per `M`, so continuous polylines would lose edges.
+- **Fold wins over coincident cut**: edges drawn as both solid and dashed are dropped from cut (0.5mm match grid).
+
+#### split(filename, svgText)
+Receives a synthesized SVG with `path.outer` (cut) and `path.convex` (fold). Grabs `d` attrs by `querySelector`, calls `mergeCutNodes` / `mergeDebossNodes`, builds cut/deboss/cricut SVGs, wires previews and download.
 
 ### Cricut SVG sizing (critical)
 
-Cricut Design Space ignores `width`/`height` canvas size and fits the shape's bounding box to the canvas height, scaling width proportionally. **Do not use full-page viewBox.**
+Cricut Design Space ignores `width`/`height` and fits to the bounding box. **Do not use full-page viewBox.**
 
-Working approach (confirmed):
 - `viewBox` = tight path bounding box (`minX minY w h`)
-- `width`/`height` in **inches** matching that bbox: `(w/25.4).toFixed(4) + 'in'`
-- Applied to cut, deboss, and combined SVGs
+- `width`/`height` in **inches**: `(w/25.4).toFixed(4) + 'in'`
 
-Full-page approaches that were tried and failed: `width="210mm"`, `width="793.70px"`, `viewBox="0 0 210 297"` with inch dimensions.
+### UI
 
-### Previews
-
-`setupPreview()` uses `<img src=blobUrl>` (not `innerHTML`) to isolate the SVG from the page's CSS cascade and prevent XSS. Blob URLs are tracked in `_blobUrls` map and revoked before replacement.
+- Drop-zone → page selector (shown only for multi-page PDFs) → two-column results
+- Left: ORIGINAL preview (the synthesized SVG with both layers styled)
+- Right: CRICUT preview with **Both / Cut / Deboss** radio toggle, Download button
+- State: `_pdfState` holds the loaded pdfjs doc; `_previewSVGs` holds `{cut, deboss, both}` SVG strings for the toggle
 
 ### Key functions
 
 | Function | Purpose |
 |---|---|
-| `mergeCutNodes(nodes, outerD)` | Extract outer path, add inline fill/stroke style |
-| `mergeDebossNodes(nodes, extraPathStr)` | Deduplicate M…L segments, merge into one path |
-| `buildCricutSVG(…)` | Combine cut + deboss + extra into one SVG with tight union bbox |
+| `pdfToSegments(doc, pageNum)` | Extract cut/fold segments from pdfjs operator list |
+| `stitchSegments(segs, epsilon)` | Chain 2-point edges into polylines via angle-based endpoint graph walk |
+| `segmentsToSVG(segs)` | Deduplicate, stitch folds, emit class-tagged SVG for `split()` |
+| `mergeCutNodes(cutD)` | Wrap cut d-string in stroked path, compute bbox |
+| `mergeDebossNodes(foldD)` | Deduplicate M…L segments, merge into one fold path |
+| `buildCricutSVG(…)` | Combine cut + fold into one SVG with tight union bbox |
 | `pathBBox(dAttr)` | Compute bounding box from path d-attribute |
-| `extractLanguetteFoldEdges(…)` | Find fold lines: edges on outer boundary but not consecutive in it |
-| `parseStickerSubpaths(dAttr)` | Parse multi-subpath sticker `d` into array of point arrays |
+| `renderSelectedLayer()` | Swap cricut preview between cut/deboss/both based on radio state |
