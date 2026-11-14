@@ -211,8 +211,8 @@ const pdfPageRow = document.getElementById('pdf-page-row');
 const pdfPageSel = document.getElementById('pdf-page');
 
 dropZone.addEventListener('click', e => {
-  // Ignore clicks on the sample link and the PDF page selector controls.
-  if (e.target === sampleBtn) return;
+  // Ignore clicks on links and the PDF page selector controls.
+  if (e.target.tagName === 'A') return;
   if (pdfPageRow.contains(e.target)) return;
   fileInput.click();
 });
