@@ -154,7 +154,7 @@
 </a>
 
 <h1>Pepakura PDF Splitter 4 Cricut Cut &amp; Fold</h1>
-<p class="subtitle">Splits a Pepakura PDF pattern into a cut file and a fold file with identical page coordinates.</p>
+<p class="subtitle">Splits a Pepakura PDF pattern into a cut file and a fold file with identical page coordinates. <span id="app-version" style="font-size:0.75rem;color:#bbb;"></span></p>
 
 <div id="drop-zone">
   <p>Drop your Pepakura PDF here, click to browse, or <a id="sample-btn" href="#">load a sample cube</a></p>
@@ -197,7 +197,10 @@ window.dispatchEvent(new Event('pdfjs-ready'));
 </script>
 <script>
 const BRAND_COLOR = '#0A91B3';
+const APP_VERSION = '1.0.0';
 const _blobUrls = new Map(); // track blob URLs by id for revocation
+
+document.getElementById('app-version').textContent = `v${APP_VERSION}`;
 
 const dropZone  = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
